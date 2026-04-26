@@ -136,12 +136,26 @@ def search_tmdb(query: str, release_year: int | None = None) -> str:
         if not results:
             return "No movies found."
 
+        # Filter out documentaries (genre ID 99) and behind-the-scenes
+        filtered_results = []
+        for m in results:
+            genres = m.get("genre_ids", [])
+            title = m.get("title", "").lower()
+            if 99 in genres:
+                continue
+            if title.startswith("inside '") or title.startswith("the making of ") or "behind the scenes" in title:
+                continue
+            filtered_results.append(m)
+            
+        if not filtered_results:
+            return "No valid movies found."
+
         # Save to DB in background
-        _async_upsert_to_chroma(results[:3], is_tv=False)
+        _async_upsert_to_chroma(filtered_results[:3], is_tv=False)
 
         # Format top 3 results instantly
         return "\n".join(
-            [f"- {m['title']} ({m.get('release_date', '')[:4]}): {m['overview']}" for m in results[:3]]
+            [f"- {m['title']} ({m.get('release_date', '')[:4]}): {m['overview']}" for m in filtered_results[:3]]
         )
     except requests.exceptions.ConnectTimeout:
         return "TMDb lookup failed: connection timed out. Check internet, firewall, or proxy settings."

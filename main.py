@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List, Dict, Any
 from agents import run_agent
 from tools import get_vector_collection, check_tmdb_health
 import uvicorn
@@ -17,6 +18,7 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     mood: str
+    history: List[Dict[str, Any]] = []
 
 
 @app.on_event("startup")
@@ -32,7 +34,7 @@ async def chat_endpoint(req: ChatRequest):
         raise HTTPException(status_code=400, detail="Mood input is required")
 
     try:
-        result = run_agent(req.mood)
+        result = run_agent(req.mood, req.history)
         return {"response": result}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

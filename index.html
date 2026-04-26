@@ -21,23 +21,39 @@
 
         <div id="tmdbStatus" class="mt-4 hidden p-4 rounded-xl border text-sm"></div>
 
-        <div id="result" class="mt-8 hidden p-6 bg-slate-900 rounded-xl border border-slate-700"></div>
+        <div id="tmdbStatus" class="mt-4 hidden p-4 rounded-xl border text-sm"></div>
+
+        <div id="chatHistory" class="mt-8 flex flex-col gap-4 hidden overflow-y-auto max-h-[50vh] p-4 bg-slate-900 rounded-xl border border-slate-700"></div>
     </div>
 
     <script>
+        let chatMessages = []; // Store history
+
         document.getElementById('chatForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('btn');
-            const resultDiv = document.getElementById('result');
-            const mood = document.getElementById('moodInput').value.trim();
+            const chatHistoryDiv = document.getElementById('chatHistory');
+            const moodInput = document.getElementById('moodInput');
+            const mood = moodInput.value.trim();
 
-            if (!mood) {
-                resultDiv.innerHTML = `<p class="text-red-400">Please enter your mood first.</p>`;
-                resultDiv.classList.remove('hidden');
-                return;
-            }
+            if (!mood) return;
 
-            // UI Loading State
+            // Add User Message to UI
+            chatHistoryDiv.classList.remove('hidden');
+            chatHistoryDiv.innerHTML += `
+                <div class="p-4 bg-blue-600/20 rounded-xl border border-blue-500/30 self-end ml-12 text-right">
+                    <p class="text-blue-100">${mood}</p>
+                </div>
+            `;
+            chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+
+            // Prepare history to send (excluding the current message which goes in 'mood')
+            const historyToSend = [...chatMessages];
+            
+            // Add user message to state
+            chatMessages.push({ role: "user", content: mood });
+            
+            moodInput.value = ""; // Clear input
             btn.textContent = "Agent is thinking...";
             btn.disabled = true;
 
@@ -45,50 +61,50 @@
                 const res = await fetch('http://localhost:8000/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mood })
+                    body: JSON.stringify({ mood: mood, history: historyToSend })
                 });
 
                 const data = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                    const detail = typeof data.detail === 'string'
-                        ? data.detail
-                        : `Server error: ${res.status} ${res.statusText}`;
-                    throw new Error(detail);
-                }
+                if (!res.ok) throw new Error(data.detail || `Server error: ${res.status}`);
 
                 let text = typeof data.response === 'string' ? data.response.trim() : '';
-                if (!text) {
-                    throw new Error('Received empty response from agent.');
-                }
+                if (!text) throw new Error('Received empty response from agent.');
 
-                // Check if the fallback string is in the text
                 const fallbackString = "_Note: Fallback mode was used because model tool-calling failed once._";
                 const isFallback = text.includes(fallbackString);
-                
-                if (isFallback) {
-                    // Remove the raw text so we can style it ourselves
-                    text = text.replace(fallbackString, "").trim();
-                }
+                if (isFallback) text = text.replace(fallbackString, "").trim();
 
-                // Render the markdown directly into the div
-                resultDiv.innerHTML = marked.parse(text);
+                // Add Agent Message to state
+                chatMessages.push({ role: "assistant", content: text });
+
+                // Render Agent Message in UI
+                let agentHtml = `
+                    <div class="p-4 bg-slate-800 rounded-xl border border-slate-600 self-start mr-12 text-left shadow-md">
+                        <div class="prose prose-invert max-w-none text-sm">${marked.parse(text)}</div>
+                `;
                 
-                // Add a nice visual warning if it was a fallback
                 if (isFallback) {
-                    resultDiv.innerHTML += `
-                        <div class="mt-4 inline-flex items-center gap-2 bg-yellow-500/20 text-yellow-300 border border-yellow-500/50 text-sm font-semibold px-4 py-2 rounded-lg">
-                            <span>⚠️</span> Fallback mode was used (Model tool-calling failed)
+                    agentHtml += `
+                        <div class="mt-3 inline-flex items-center gap-2 bg-yellow-500/20 text-yellow-300 border border-yellow-500/50 text-xs font-semibold px-3 py-1.5 rounded-lg">
+                            <span>⚠️</span> Fallback mode was used
                         </div>
                     `;
                 }
+                agentHtml += `</div>`;
                 
-                resultDiv.classList.remove('hidden');
-                
+                chatHistoryDiv.innerHTML += agentHtml;
+                chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+
             } catch (err) {
-                resultDiv.innerHTML = `<p class="text-red-400">Error: ${err.message}</p>`;
-                resultDiv.classList.remove('hidden');
+                chatHistoryDiv.innerHTML += `
+                    <div class="p-4 bg-red-900/30 rounded-xl border border-red-500/50 self-start mr-12 text-left">
+                        <p class="text-red-400 text-sm">Error: ${err.message}</p>
+                    </div>
+                `;
+                chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+                // Pop the last user message so they can try again if they want
+                chatMessages.pop();
             } finally {
-                // Reset UI
                 btn.textContent = "Ask Agent";
                 btn.disabled = false;
             }
