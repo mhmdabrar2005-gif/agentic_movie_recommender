@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Movie Recommender</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-6">
+
+    <div class="w-full max-w-2xl bg-slate-800 p-8 rounded-2xl shadow-xl">
+        <h1 class="text-3xl font-bold text-blue-400 mb-6 text-center">Movie Agent</h1>
+        
+        <form id="chatForm" class="flex flex-col gap-4">
+            <textarea id="moodInput" rows="3" class="p-4 rounded-xl bg-slate-700 text-white focus:ring-2 focus:ring-blue-500 outline-none resize-none" placeholder="What's your vibe right now?" required></textarea>
+            <div class="flex gap-3">
+                <button type="submit" id="btn" class="flex-1 bg-blue-600 py-3 rounded-xl font-bold hover:bg-blue-500 transition-colors">Ask Agent</button>
+                <button type="button" id="tmdbCheckBtn" class="px-4 py-3 rounded-xl font-semibold bg-slate-600 hover:bg-slate-500 transition-colors">Check TMDb</button>
+            </div>
+        </form>
+
+        <div id="tmdbStatus" class="mt-4 hidden p-4 rounded-xl border text-sm"></div>
+
+        <div id="result" class="mt-8 hidden p-6 bg-slate-900 rounded-xl border border-slate-700"></div>
+    </div>
+
+    <script>
+        document.getElementById('chatForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btn');
+            const resultDiv = document.getElementById('result');
+            const mood = document.getElementById('moodInput').value.trim();
+
+            if (!mood) {
+                resultDiv.innerHTML = `<p class="text-red-400">Please enter your mood first.</p>`;
+                resultDiv.classList.remove('hidden');
+                return;
+            }
+
+            // UI Loading State
+            btn.textContent = "Agent is thinking...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('http://localhost:8000/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mood })
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    const detail = typeof data.detail === 'string'
+                        ? data.detail
+                        : `Server error: ${res.status} ${res.statusText}`;
+                    throw new Error(detail);
+                }
+
+                let text = typeof data.response === 'string' ? data.response.trim() : '';
+                if (!text) {
+                    throw new Error('Received empty response from agent.');
+                }
+
+                // Check if the fallback string is in the text
+                const fallbackString = "_Note: Fallback mode was used because model tool-calling failed once._";
+                const isFallback = text.includes(fallbackString);
+                
+                if (isFallback) {
+                    // Remove the raw text so we can style it ourselves
+                    text = text.replace(fallbackString, "").trim();
+                }
+
+                // Render the markdown directly into the div
+                resultDiv.innerHTML = marked.parse(text);
+                
+                // Add a nice visual warning if it was a fallback
+                if (isFallback) {
+                    resultDiv.innerHTML += `
+                        <div class="mt-4 inline-flex items-center gap-2 bg-yellow-500/20 text-yellow-300 border border-yellow-500/50 text-sm font-semibold px-4 py-2 rounded-lg">
+                            <span>⚠️</span> Fallback mode was used (Model tool-calling failed)
+                        </div>
+                    `;
+                }
+                
+                resultDiv.classList.remove('hidden');
+                
+            } catch (err) {
+                resultDiv.innerHTML = `<p class="text-red-400">Error: ${err.message}</p>`;
+                resultDiv.classList.remove('hidden');
+            } finally {
+                // Reset UI
+                btn.textContent = "Ask Agent";
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('tmdbCheckBtn').addEventListener('click', async () => {
+            const checkBtn = document.getElementById('tmdbCheckBtn');
+            const statusDiv = document.getElementById('tmdbStatus');
+
+            checkBtn.disabled = true;
+            checkBtn.textContent = 'Checking...';
+
+            try {
+                const res = await fetch('http://localhost:8000/health/tmdb');
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(`Health endpoint failed: ${res.status} ${res.statusText}`);
+                }
+
+                const ok = data.ok === true;
+                const baseClass = 'mt-4 p-4 rounded-xl border text-sm';
+                statusDiv.className = ok
+                    ? `${baseClass} bg-emerald-500/10 border-emerald-500/40 text-emerald-300`
+                    : `${baseClass} bg-red-500/10 border-red-500/40 text-red-300`;
+
+                statusDiv.innerHTML = ok
+                    ? `TMDb reachable (${data.elapsed_seconds}s).`
+                    : `TMDb not reachable (${data.status} in ${data.elapsed_seconds}s): ${data.message}`;
+                statusDiv.classList.remove('hidden');
+            } catch (err) {
+                statusDiv.className = 'mt-4 p-4 rounded-xl border text-sm bg-red-500/10 border-red-500/40 text-red-300';
+                statusDiv.innerHTML = `TMDb check failed: ${err.message}`;
+                statusDiv.classList.remove('hidden');
+            } finally {
+                checkBtn.disabled = false;
+                checkBtn.textContent = 'Check TMDb';
+            }
+        });
+    </script>
+</body>
+</html>
